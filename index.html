@@ -3,19 +3,21 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>DoubleMove Film Room</title>
+  <title>NFL Film Telestrator</title>
   <style>
     :root{
-      --bg:#0f1115;--panel:#141824;--muted:#1b2030;--text:#e7eaf3;--accent:#6ea8fe;--accent-2:#9ee493;
-      --danger:#ff6b6b;--warn:#ffd166;--shadow:rgba(0,0,0,.35)
+      --bg:#0f1115;--panel:#141824;--muted:#1b2030;--text:#e7eaf3;--accent:#6ea8fe;--accent-2:#9ee493;--danger:#ff6b6b;--warn:#ffd166;--shadow:rgba(0,0,0,.35)
     }
     *{box-sizing:border-box}
     html,body{height:100%}
     body{margin:0;background:linear-gradient(180deg,#0d0f14 0%,#0b0d12 100%);color:var(--text);font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial,sans-serif}
-    .app{display:grid;grid-template-rows:auto 1fr auto;min-height:100vh;}
-    header{display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;background:rgba(20,24,36,.8);backdrop-filter:saturate(1.2) blur(8px);border-bottom:1px solid #222638;position:sticky;top:0;z-index:10}
+    .app{display:grid;grid-template-rows:auto 1fr auto;min-height:100vh}
+
+    /* Header doubles as a dock in fullscreen */
+    header{display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;background:rgba(20,24,36,.85);backdrop-filter:saturate(1.2) blur(8px);border-bottom:1px solid #222638;position:sticky;top:0;z-index:30}
     header h1{font-size:16px;margin:0 6px 0 0;font-weight:700;letter-spacing:.2px;white-space:nowrap}
     header .controls{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
+
     .btn{appearance:none;border:1px solid #2a3148;background:linear-gradient(180deg,#1a2032,#151a28);color:var(--text);padding:.5rem .7rem;border-radius:10px;cursor:pointer;box-shadow:0 4px 14px var(--shadow);transition:.2s transform,.2s box-shadow,.2s background}
     .btn:hover{transform:translateY(-1px);box-shadow:0 8px 24px var(--shadow)}
     .btn:active{transform:translateY(0)}
@@ -42,36 +44,27 @@
     .small{font-size:12px;opacity:.8}
 
     .stage-wrap{position:relative;background:#000;border:1px solid #232941;border-radius:16px;overflow:hidden;min-height:360px;display:grid}
-    .stage{place-self:center;position:relative;max-width:100%;max-height:78vh}
+    .stage{place-self:center;position:relative;width:100%;height:72vh;max-width:100%}
     video,canvas{display:block;max-width:100%;height:auto;border-radius:8px}
     canvas.overlay{position:absolute;left:0;top:0;cursor:crosshair}
     canvas.cursor{position:absolute;left:0;top:0;pointer-events:none}
     .badge{font-size:11px;padding:.2rem .4rem;border-radius:6px;border:1px solid #2a3148;background:#121729;opacity:.9}
 
     footer{display:flex;justify-content:space-between;align-items:center;padding:.5rem 1rem;background:rgba(20,24,36,.8);border-top:1px solid #222638}
-    kbd{background:#0e1322;border:1px solid #232941;border-bottom-width:2px;border-radius:6px;padding:.1rem .35rem;font-size:11px}
     .hint{opacity:.8}
     .hidden{display:none}
 
-    @media (max-width: 980px){
-      main{grid-template-columns:1fr}
-      aside{order:2}
-.stage{position:relative;width:100%;height:72vh;max-width:100%}
-.overlay{z-index:10}
-.cursor{z-index:11}
+    /* Fullscreen layout: fill stage, hide sidebar, move header to bottom as dock */
+    body.isFS header{position:fixed;left:0;right:0;bottom:0;top:auto;border-top:1px solid #222638;border-bottom:none;background:rgba(20,24,36,.96);z-index:50}
+    body.isFS main{grid-template-columns:1fr;padding:0}
+    body.isFS aside{display:none}
+    body.isFS .stage-wrap{height:100vh;border-radius:0}
+    body.isFS .stage{height:100vh}
+    body.isFS footer{display:none}
+    .overlay{z-index:10}
+    .cursor{z-index:11}
 
-  body.isFS header{
-  position:fixed;left:0;right:0;bottom:0;top:auto;
-  border-top:1px solid #222638;border-bottom:none;
-  background:rgba(20,24,36,.95);z-index:50
-}
-body.isFS main{grid-template-columns:1fr;padding:0}
-body.isFS aside{display:none}
-body.isFS .stage-wrap{height:100vh;border-radius:0}
-body.isFS .stage{height:100vh}
-body.isFS footer{display:none}
-
-    }
+    @media (max-width: 980px){main{grid-template-columns:1fr}aside{order:2}}
   </style>
 </head>
 <body>
@@ -82,6 +75,7 @@ body.isFS footer{display:none}
         <button id="openBtn" class="btn primary">Import Video</button>
         <input id="fileInput" type="file" accept="video/*" class="hidden" />
         <button id="playBtn" class="btn">Play</button>
+        <button id="fsBtn" class="btn">Fullscreen</button>
         <div class="row"><span class="label">Speed</span><input id="speed" type="range" min="0.25" max="2" step="0.25" value="1"/></div>
         <div class="row" id="speedPresets">
           <span class="label">Presets</span>
@@ -206,6 +200,7 @@ body.isFS footer{display:none}
   const fileInput = $('#fileInput');
   const openBtn = $('#openBtn');
   const playBtn = $('#playBtn');
+  const fsBtn = $('#fsBtn');
   const speed = $('#speed');
   const toolSel = $('#tool');
   const color = $('#color');
@@ -238,25 +233,14 @@ body.isFS footer{display:none}
   function fitCanvases(){
     const w = video.videoWidth || 1920;
     const h = video.videoHeight || 1080;
-
-    // Fit within stage
     const stageRect = stage.getBoundingClientRect();
     const scale = Math.min(stageRect.width / w, stageRect.height / h);
     const cw = Math.max(1, Math.floor(w * scale));
     const ch = Math.max(1, Math.floor(h * scale));
-
-    // Size the video via CSS for aspect; canvas must match CSS pixels
     video.style.width = cw + 'px';
     video.style.height = ch + 'px';
-
-    overlay.width = cw; overlay.height = ch;
-    overlay.style.width = cw + 'px';
-    overlay.style.height = ch + 'px';
-
-    cursor.width = cw; cursor.height = ch;
-    cursor.style.width = cw + 'px';
-    cursor.style.height = ch + 'px';
-
+    overlay.width = cw; overlay.height = ch; overlay.style.width = cw + 'px'; overlay.style.height = ch + 'px';
+    cursor.width = cw; cursor.height = ch; cursor.style.width = cw + 'px'; cursor.style.height = ch + 'px';
     composite.width = cw; composite.height = ch;
   }
 
@@ -281,15 +265,22 @@ body.isFS footer{display:none}
 
   // --- Controls
   openBtn.onclick = () => fileInput.click();
-  fileInput.onchange = (e)=>{
-    const f = e.target.files?.[0];
-    if(f) loadVideoFile(f);
-  };
+  fileInput.onchange = (e)=>{ const f = e.target.files?.[0]; if(f) loadVideoFile(f); };
+  playBtn.onclick = ()=>{ if(video.paused){ video.play(); playBtn.textContent='Pause'; } else { video.pause(); playBtn.textContent='Play'; } };
 
-  playBtn.onclick = ()=>{
-    if(video.paused){ video.play(); playBtn.textContent='Pause'; }
-    else { video.pause(); playBtn.textContent='Play'; }
-  };
+  // Fullscreen (desktop + iOS Safari fallback)
+  function enterFS(){
+    const wrap = document.querySelector('.stage-wrap');
+    if (wrap.requestFullscreen) return wrap.requestFullscreen();
+    if (video && video.webkitEnterFullscreen) return video.webkitEnterFullscreen();
+  }
+  function exitFS(){ if (document.fullscreenElement && document.exitFullscreen) return document.exitFullscreen(); }
+  fsBtn.onclick = ()=>{ if(!document.fullscreenElement) enterFS(); else exitFS(); };
+
+  document.addEventListener('fullscreenchange', ()=>{
+    document.body.classList.toggle('isFS', !!document.fullscreenElement);
+    const paused = video.paused; fitCanvases(); redraw(); if(!paused) requestAnimationFrame(()=>{});
+  });
 
   speed.oninput = ()=>{ video.playbackRate = parseFloat(speed.value); };
   $$('#speedPresets [data-setspeed]').forEach(b=>b.onclick=()=>{ const v=parseFloat(b.dataset.setspeed); speed.value=v; video.playbackRate=v; });
@@ -310,7 +301,6 @@ body.isFS footer{display:none}
   }
 
   function startStroke(pt){
-    // route preset placement
     if(currentTool==='preset'){
       const path = makeRoutePath($('#preset').value, $('#presetDir').value, parseFloat($('#presetScale').value));
       const translated = path.map(p=>({ x: pt.x + p.x, y: pt.y + p.y }));
@@ -329,16 +319,11 @@ body.isFS footer{display:none}
 
   function addPoint(pt){
     const s = strokes[strokes.length-1]; if(!s) return;
-    if(['line','arrow','rect','circle'].includes(s.tool)){
-      s.points[1]=pt; // dynamic endpoint
-    } else {
-      s.points.push(pt);
-    }
+    if(['line','arrow','rect','circle'].includes(s.tool)) s.points[1]=pt; else s.points.push(pt);
     redraw();
   }
 
   function endStroke(){ drawing=false; drawCursorGlyph(lastPos); }
-
   function undo(){ if(strokes.length){ redoStack.push(strokes.pop()); redraw(); } }
   function redo(){ if(redoStack.length){ strokes.push(redoStack.pop()); redraw(); } }
 
@@ -347,7 +332,6 @@ body.isFS footer{display:none}
     const headLen = Math.max(10, size*3);
     ctx.strokeStyle=color; ctx.lineWidth=size; ctx.lineCap='round'; ctx.lineJoin='round';
     ctx.beginPath(); ctx.moveTo(from.x,from.y); ctx.lineTo(to.x,to.y); ctx.stroke();
-    // head
     ctx.beginPath();
     ctx.moveTo(to.x,to.y);
     ctx.lineTo(to.x - headLen*Math.cos(ang - Math.PI/6), to.y - headLen*Math.sin(ang - Math.PI/6));
@@ -545,38 +529,6 @@ body.isFS footer{display:none}
   fitCanvases();
   updateToolUI();
   video.controls = true; // native controls also
-    <script>
-// --- Fullscreen helpers (desktop + iOS Safari fallback)
-(function(){
-  const fsBtn = document.getElementById('fsBtn');
-  const wrap = document.querySelector('.stage-wrap');
-  const vid  = document.getElementById('video');
-
-  function enterFS(){
-    if (wrap.requestFullscreen) return wrap.requestFullscreen();
-    // iOS Safari fallback: fullscreen the <video> element
-    if (vid && vid.webkitEnterFullscreen) return vid.webkitEnterFullscreen();
-  }
-  function exitFS(){
-    if (document.fullscreenElement && document.exitFullscreen) return document.exitFullscreen();
-    // iOS video exits FS with done button; nothing to do.
-  }
-
-  if (fsBtn && wrap){
-    fsBtn.addEventListener('click', ()=>{
-      if (!document.fullscreenElement) enterFS(); else exitFS();
-    });
-
-    document.addEventListener('fullscreenchange', ()=>{
-      document.body.classList.toggle('isFS', !!document.fullscreenElement);
-      // Refit canvases when size changes
-      const paused = video.paused;
-      if (typeof fitCanvases === 'function') fitCanvases();
-      if (typeof redraw === 'function') redraw();
-      if (!paused) requestAnimationFrame(()=>{});
-    });
-  }
-})();
-</script>
+  </script>
 </body>
 </html>
